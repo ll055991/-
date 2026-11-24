@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Sentiment {
+  PENDING
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
+model User {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  passwordHash String
+  nickname     String
+  avatarColor  String
+  createdAt    DateTime  @default(now())
+  comments     Comment[]
+  likes        Like[]
+}
+
+model Comment {
+  id          String    @id @default(cuid())
+  authorId    String
+  author      User      @relation(fields: [authorId], references: [id])
+  content     String    @db.VarChar(500)
+  x           Float
+  y           Float
+  zIndex      Int       @default(0)
+  // 贴纸轻微倾斜，还原手贴质感
+  rotation    Float     @default(0)
+  sentiment   Sentiment @default(PENDING)
+  // 记录情绪结果来源（llm / lexicon），便于排查识别问题
+  sentimentBy String?
+  // 乐观锁：客户端据此丢弃乱序到达的过期事件
+  version     Int       @default(1)
+  // 冗余点赞数，避免每次下发快照都做 COUNT
+  likeCount   Int       @default(0)
+  // 软删除：保留数据可追溯
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  likes       Like[]
+
+  @@index([deletedAt])
+}
+
+model Like {
+  userId    String
+  commentId String
+  user      User     @relation(fields: [userId], references: [id])
+  comment   Comment  @relation(fields: [commentId], references: [id])
+  createdAt DateTime @default(now())
+
+  // 联合主键在数据库层兜底“每人每卡限赞一次”，防并发重复点赞
+  @@id([userId, commentId])
+}
+
+// 单墙场景：固定 id=1 的单行表，保存全局布局模式
+model BoardState {
+  id         Int      @id @default(1)
+  layoutMode String   @default("free")
+  updatedAt  DateTime @updatedAt
+}
